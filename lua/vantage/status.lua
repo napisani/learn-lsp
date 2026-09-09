@@ -52,9 +52,13 @@ local function format_details(details)
 	return table.concat(parts, ", ")
 end
 
-function M.annotation(status)
+--- Renders whichever request is currently tracked (explain/question/edit/
+--- annotate) -- one tracked request, one status view. `received`/
+--- `rendered`/`skipped` are annotate-specific fields that simply won't be
+--- present for other commands' status tables.
+function M.request(status)
 	local lines = {
-		"## Vantage Annotation Status",
+		"## Vantage Request Status",
 		"",
 		"- Status: " .. tostring(status.status or "unknown"),
 	}
@@ -189,6 +193,21 @@ function M.agent_context(snapshot)
 	return table.concat(lines, "\n")
 end
 
+---Entry counts only -- prompt text never appears in the status float.
+---@return string markdown
+function M.history()
+	local history = require("vantage.history")
+	local total = #history.entries()
+	local scoped = #history.entries({
+		workspace = require("vantage.agent_context").workspace_root() or "",
+	})
+	return table.concat({
+		"## Vantage Prompt History",
+		"",
+		"Entries: `" .. total .. "` (`" .. scoped .. "` in this workspace)",
+	}, "\n")
+end
+
 function M.combined(status)
 	local lines = {
 		"## Vantage Status",
@@ -197,7 +216,9 @@ function M.combined(status)
 		"",
 		section(M.agent_context(status.agent_context or {}), "Agent Context"),
 		"",
-		section(M.annotation(status.annotation or {}), "Annotations"),
+		section(M.request(status.request or {}), "Request"),
+		"",
+		section(M.history(), "History"),
 	}
 	return table.concat(lines, "\n")
 end

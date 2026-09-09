@@ -15,16 +15,33 @@ vim.g.loaded_vantage_nvim = true
 local backend = {
 	mode = "development",
 }
+local model_name = vim.g.vantage_pi_model_name or "default"
+local reasoning = vim.g.vantage_pi_reasoning
 local agent = {
 	runtime = "development",
-	provider = vim.g.vantage_pi_provider or "openai",
-	model = vim.g.vantage_pi_model or "gpt-4o-mini",
+	models = {
+		{
+			name = model_name,
+			provider = vim.g.vantage_pi_provider or "openai",
+			model = vim.g.vantage_pi_model or "gpt-4o-mini",
+			options = {
+				reasoning = reasoning,
+			},
+		},
+	},
+	default_model = model_name,
 	options = {
 		timeoutMs = vim.g.vantage_pi_timeout_ms,
+		reasoning = reasoning,
 	},
 	trace = {
 		prompt_path = vim.g.vantage_pi_trace_prompt_path,
 		response_path = vim.g.vantage_pi_trace_response_path,
+	},
+}
+local completion = {
+	options = {
+		reasoning = reasoning,
 	},
 }
 local commands = {
@@ -58,10 +75,12 @@ local function remove_empty_tables(config)
 end
 
 remove_empty_tables(agent)
+remove_empty_tables(completion)
 remove_empty_tables(commands)
 
 require("vantage").setup({
 	backend = backend,
 	agent = agent,
+	completion = completion,
 	commands = commands,
 })

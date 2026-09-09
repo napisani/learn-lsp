@@ -1,4 +1,4 @@
-import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
+import type { AgentRuntime, AgentRuntimeRequestContext } from './runtime/agent';
 import type { BackendMethod, BackendRequest, BackendResult } from './protocol';
 
 export const BACKEND_METHODS = [
@@ -13,39 +13,46 @@ export const BACKEND_METHODS = [
 	'agentSessionOutput',
 	'listSkills',
 	'generateWalkthrough',
+	'complete',
 ] as const;
 
-export function isBackendMethod(value: unknown): value is BackendMethod {
-	return typeof value === 'string' && (BACKEND_METHODS as readonly string[]).includes(value);
-}
+type CommandHandlerMap = {
+	[Method in BackendMethod]: (
+		runtime: AgentRuntime,
+		request: Extract<BackendRequest, { method: Method }>,
+		context: AgentRuntimeRequestContext
+	) => Promise<BackendResult> | BackendResult;
+};
+
+const commandHandlers: CommandHandlerMap = {
+	explainSelection: (runtime, request, ctx) => runtime.explainSelection(request.params, ctx),
+	questionSelection: (runtime, request, ctx) => runtime.questionSelection(request.params, ctx),
+	editSelection: (runtime, request, ctx) => runtime.editSelection(request.params, ctx),
+	annotateRange: (runtime, request, ctx) => runtime.annotateRange(request.params, ctx),
+	searchLocations: (runtime, request, ctx) => runtime.searchLocations(request.params, ctx),
+	agentCancel: (runtime, request, ctx) => runtime.agentCancel(request.params, ctx),
+	agentSessionReset: (runtime, request, ctx) => runtime.agentSessionReset(request.params, ctx),
+	agentSessionStatus: (runtime, request, ctx) => runtime.agentSessionStatus(request.params, ctx),
+	agentSessionOutput: (runtime, request, ctx) => runtime.agentSessionOutput(request.params, ctx),
+	listSkills: (runtime, request, ctx) => runtime.listSkills(request.params, ctx),
+	generateWalkthrough: (runtime, request, ctx) => runtime.generateWalkthrough(request.params, ctx),
+	complete: () => {
+		throw new Error('complete is dispatched through CompletionRuntime, not runBackendCommand');
+	},
+};
 
 export function runBackendCommand(
 	runtime: AgentRuntime,
 	request: BackendRequest,
 	context: AgentRuntimeRequestContext
 ): Promise<BackendResult> | BackendResult {
-	switch (request.method) {
-		case 'explainSelection':
-			return runtime.explainSelection(request.params, context);
-		case 'questionSelection':
-			return runtime.questionSelection(request.params, context);
-		case 'editSelection':
-			return runtime.editSelection(request.params, context);
-		case 'annotateRange':
-			return runtime.annotateRange(request.params, context);
-		case 'searchLocations':
-			return runtime.searchLocations(request.params, context);
-		case 'agentCancel':
-			return runtime.agentCancel(request.params, context);
-		case 'agentSessionReset':
-			return runtime.agentSessionReset(request.params, context);
-		case 'agentSessionStatus':
-			return runtime.agentSessionStatus(request.params, context);
-		case 'agentSessionOutput':
-			return runtime.agentSessionOutput(request.params, context);
-		case 'listSkills':
-			return runtime.listSkills(request.params, context);
-		case 'generateWalkthrough':
-			return runtime.generateWalkthrough(request.params, context);
-	}
+	return dispatchCommand(runtime, request, context);
+}
+
+function dispatchCommand<M extends BackendMethod>(
+	runtime: AgentRuntime,
+	request: Extract<BackendRequest, { method: M }>,
+	context: AgentRuntimeRequestContext
+): Promise<BackendResult> | BackendResult {
+	return commandHandlers[request.method](runtime, request, context);
 }

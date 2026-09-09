@@ -3,12 +3,23 @@ import * as assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import * as path from 'node:path';
+import * as fs from 'node:fs';
+import { startBridge } from './runtime/adjacent/transport';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { AgentRuntimeProgress, BackendResponse } from './protocol';
 
 const responseTimeoutMs = 2_000;
 const stdoutBuffers = new WeakMap<NodeJS.ReadableStream, string>();
 
-const readJsonLineFromStdout = async (stream: NodeJS.ReadableStream): Promise<Record<string, unknown>> => {
+interface StdioProgressMessage {
+	id: string;
+	type: 'progress';
+	progress: AgentRuntimeProgress;
+}
+
+type StdioMessage = BackendResponse | StdioProgressMessage;
+
+const readJsonLineFromStdout = async (stream: NodeJS.ReadableStream, signal: AbortSignal): Promise<StdioMessage> => {
 	const chunks: Buffer[] = [];
 
 	while (true) {
@@ -16,16 +27,18 @@ const readJsonLineFromStdout = async (stream: NodeJS.ReadableStream): Promise<Re
 		const bufferedNewline = buffered.indexOf('\n');
 		if (bufferedNewline >= 0) {
 			stdoutBuffers.set(stream, buffered.slice(bufferedNewline + 1));
-			return JSON.parse(buffered.slice(0, bufferedNewline)) as Record<string, unknown>;
+			return JSON.parse(buffered.slice(0, bufferedNewline));
 		}
 
-		const [chunk] = await once(stream, 'data') as [Buffer];
+		// SAFETY: this stdout stream is never put into object/string mode, so
+		// Node's 'data' event always emits a Buffer chunk here.
+		const [chunk] = await once(stream, 'data', { signal }) as [Buffer];
 		chunks.push(chunk);
 		const text = buffered + Buffer.concat(chunks).toString('utf8');
 		const newline = text.indexOf('\n');
 		if (newline >= 0) {
 			stdoutBuffers.set(stream, text.slice(newline + 1));
-			return JSON.parse(text.slice(0, newline)) as Record<string, unknown>;
+			return JSON.parse(text.slice(0, newline));
 		}
 	}
 };
@@ -33,34 +46,36 @@ const readJsonLineFromStdout = async (stream: NodeJS.ReadableStream): Promise<Re
 const readJsonLine = async (
 	child: ChildProcessWithoutNullStreams,
 	stderrText: () => string
-): Promise<Record<string, unknown>> => {
+): Promise<StdioMessage> => {
 	let timeout: NodeJS.Timeout | undefined;
+	const listeners = new AbortController();
 
 	const timeoutPromise = new Promise<never>((_resolve, reject) => {
 		timeout = setTimeout(() => {
 			reject(new Error(`timed out waiting for stdio server response. stderr: ${stderrText()}`));
 		}, responseTimeoutMs);
 	});
-	const exitPromise = once(child, 'exit').then(([code, signal]) => {
+	const exitPromise = once(child, 'exit', { signal: listeners.signal }).then(([code, signal]) => {
 		throw new Error(
 			`stdio server exited before writing a response. code: ${String(code)}, signal: ${String(signal)}, stderr: ${stderrText()}`
 		);
-	}) as Promise<never>;
-	const errorPromise = once(child, 'error').then(([error]) => {
+	});
+	const errorPromise = once(child, 'error', { signal: listeners.signal }).then(([error]) => {
 		throw new Error(
 			`stdio server failed before writing a response: ${error instanceof Error ? error.message : String(error)}. stderr: ${stderrText()}`
 		);
-	}) as Promise<never>;
+	});
 
 	try {
 		return await Promise.race([
-			readJsonLineFromStdout(child.stdout),
+			readJsonLineFromStdout(child.stdout, listeners.signal),
 			timeoutPromise,
 			exitPromise,
 			errorPromise,
 		]);
 	} finally {
 		clearTimeout(timeout);
+		listeners.abort();
 	}
 };
 
@@ -104,11 +119,14 @@ test('stdio server responds to explainSelection', async () => {
 
 		let finalResponse = await readJsonLine(child, stderrText);
 		let sawBackendProgress = false;
-		while (finalResponse.type === 'progress') {
+		while ('type' in finalResponse && finalResponse.type === 'progress') {
 			assert.equal(finalResponse.id, 'req-stdio');
-			sawBackendProgress = sawBackendProgress
-				|| (finalResponse.progress as { stage?: unknown }).stage === 'backend_received';
+			sawBackendProgress = sawBackendProgress || finalResponse.progress.stage === 'backend_received';
 			finalResponse = await readJsonLine(child, stderrText);
+		}
+
+		if ('type' in finalResponse) {
+			throw new Error('expected a final backend response, not another progress message.');
 		}
 
 		assert.equal(sawBackendProgress, true);
@@ -118,4 +136,33 @@ test('stdio server responds to explainSelection', async () => {
 	} finally {
 		await killAndWait(child);
 	}
+});
+
+test('the first backend command selects a runtime once, and backend restart rechecks', async (t) => {
+	const root = fs.mkdtempSync('/tmp/vantage-stdio-selection-');
+	t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+	const socket = path.join(root, 'pi.sock');
+	const serverPath = path.resolve(__dirname, 'stdio-server.js');
+	let child = spawn(process.execPath, [serverPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+	t.after(() => killAndWait(child));
+	const status = async () => {
+		child.stdin.write(JSON.stringify({
+			id: 'status', method: 'agentSessionStatus',
+			config: { agent: { runtime: 'adjacent-or-pi', adjacent: { socket_path: socket } } },
+			params: { workspaceRoot: root, filePath: path.join(root, 'example.ts'), language: 'typescript', text: '', cursor: { line: 1, character: 1 } },
+		}) + '\n');
+		let message = await readJsonLine(child, () => '');
+		while ('type' in message) {
+			message = await readJsonLine(child, () => '');
+		}
+		assert.equal(message.ok, true);
+		return JSON.stringify(message);
+	};
+	assert.doesNotMatch(await status(), /Runtime: adjacent Pi/);
+	const close = await startBridge(socket, root, () => { throw new Error('No model request expected.'); });
+	t.after(close);
+	assert.doesNotMatch(await status(), /Runtime: adjacent Pi/, 'an agent appearing later must not switch the active runtime');
+	await killAndWait(child);
+	child = spawn(process.execPath, [serverPath], { stdio: ['pipe', 'pipe', 'pipe'] });
+	assert.match(await status(), /Runtime: adjacent Pi/);
 });

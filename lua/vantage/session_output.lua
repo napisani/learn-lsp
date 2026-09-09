@@ -1,21 +1,14 @@
 local backend = require("vantage.backend")
 local context = require("vantage.context")
+local hints = require("vantage.ui.hints")
+local response_util = require("vantage.response")
 local state = require("vantage.state")
 local ui = require("vantage.ui")
+local win_util = require("vantage.ui.window")
 
 local M = {}
 
 local current = nil
-
-local function as_list(value)
-	if type(value) == "table" then
-		return value
-	end
-	if type(value) == "string" and value ~= "" then
-		return { value }
-	end
-	return {}
-end
 
 local function config()
 	return ((state.config.ui or {}).session_output or {})
@@ -24,8 +17,8 @@ end
 local function keymaps()
 	local maps = config().keymaps or {}
 	return {
-		close = as_list(maps.close or "q"),
-		toggle_raw = as_list(maps.toggle_raw or "r"),
+		close = win_util.as_list(maps.close or "q"),
+		toggle_raw = win_util.as_list(maps.toggle_raw or "r"),
 	}
 end
 
@@ -82,15 +75,8 @@ local function request(view)
 		if current ~= view then
 			return
 		end
-		local markdown
-		if not response or not response.ok then
-			local message = response and response.error and response.error.message or "Unknown backend error."
-			markdown = "## Error\n\n" .. tostring(message)
-		elseif response.result and response.result.kind == "explanation" then
-			markdown = response.result.markdown or ""
-		else
-			markdown = "## Error\n\nBackend returned an invalid session output response."
-		end
+		local result, err = response_util.unwrap(response, "explanation", "Backend returned an invalid session output response.")
+		local markdown = result and (result.markdown or "") or err
 		local follow = not view.loaded_once or at_bottom(view)
 		set_lines(view, markdown, follow)
 		view.loaded_once = true
@@ -125,9 +111,7 @@ function M.open()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "Loading Vantage session output..." })
 	vim.api.nvim_buf_set_option(buf, "modifiable", false)
 	local win = ui.open_float(buf, { line_count = 20 })
-	vim.api.nvim_win_set_option(win, "wrap", true)
-	vim.api.nvim_win_set_option(win, "linebreak", true)
-	vim.api.nvim_win_set_option(win, "breakindent", true)
+	win_util.apply_readable_options(win)
 
 	local view = { buf = buf, win = win, raw = false, loaded_once = false, timer = nil }
 	current = view
@@ -141,6 +125,19 @@ function M.open()
 	})
 
 	local maps = keymaps()
+
+	local function refresh_footer()
+		local footer = hints.footer({
+			{ label = "raw", key = maps.toggle_raw[1], checked = view.raw },
+			{ label = "close", key = maps.close[1] },
+		})
+		if footer and vim.api.nvim_win_is_valid(win) then
+			vim.api.nvim_win_set_config(win, { footer = footer, footer_pos = "right" })
+		end
+	end
+
+	refresh_footer()
+
 	for _, lhs in ipairs(maps.close) do
 		vim.keymap.set("n", lhs, function()
 			close_view(view)
@@ -149,6 +146,7 @@ function M.open()
 	for _, lhs in ipairs(maps.toggle_raw) do
 		vim.keymap.set("n", lhs, function()
 			view.raw = not view.raw
+			refresh_footer()
 			request(view)
 		end, { buffer = buf, silent = true, desc = "Toggle raw Vantage session output" })
 	end

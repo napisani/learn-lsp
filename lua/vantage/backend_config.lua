@@ -11,6 +11,8 @@ end
 
 local function agent_options_config(value)
 	local options = json_object(value)
+	-- These known Pi fields are maps; force empty maps to JSON objects while
+	-- leaving every other user-provided option untouched.
 	if type(options.metadata) == "table" and vim.tbl_isempty(options.metadata) then
 		options.metadata = vim.empty_dict()
 	end
@@ -46,11 +48,19 @@ local function agent_config(value)
 	value = value or {}
 	return {
 		runtime = value.runtime,
+		adjacent = value.adjacent and json_object(value.adjacent) or nil,
 		provider = value.provider,
 		model = value.model,
 		auth = auth_config(value.auth),
 		options = agent_options_config(value.options),
 		session_output = session_output_config(value.session_output),
+	}
+end
+
+local function completion_config(value)
+	value = value or {}
+	return {
+		options = agent_options_config(value.options),
 	}
 end
 
@@ -74,6 +84,7 @@ function M.request()
 	local commands = state.config.commands or {}
 	return {
 		agent = agent_config(state.config.agent),
+		completion = completion_config(state.config.completion),
 		commands = {
 			explain = command_config(commands.explain),
 			question = command_config(commands.question),

@@ -1,9 +1,11 @@
 import * as readline from 'node:readline';
+import { z } from 'zod';
 import { Effect } from 'effect';
 import { handleBackendRequestEffect } from './handlers';
 import { parseBackendRequest } from './protocol';
 import { BadRequestError, errorMessage, JsonParseError } from './effect-errors';
 import type { AgentRuntimeProgress, BackendRequest, BackendResponse } from './protocol';
+import type { JsonValue } from './utils';
 
 const writeResponse = (response: BackendResponse): void => {
 	process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -20,32 +22,24 @@ const interfaceReader = readline.createInterface({
 
 const inFlight = new Map<string, AbortController>();
 
-type UnknownRecord = Record<string, unknown>;
+const CancelRequestSchema = z.object({
+	method: z.literal('cancelRequest'),
+	params: z.unknown().optional(),
+});
 
-function tryHandleCancel(raw: unknown): boolean {
-	if (!isUnknownRecord(raw)) {
+const CancelRequestParamsSchema = z.object({ id: z.string() });
+
+function tryHandleCancel(raw: JsonValue): boolean {
+	const cancelRequest = CancelRequestSchema.safeParse(raw);
+	if (!cancelRequest.success) {
 		return false;
 	}
 
-	if (raw.method !== 'cancelRequest') {
-		return false;
+	const params = CancelRequestParamsSchema.safeParse(cancelRequest.data.params);
+	if (params.success) {
+		inFlight.get(params.data.id)?.abort();
 	}
-
-	if (!isUnknownRecord(raw.params)) {
-		return true;
-	}
-
-	const requestId = raw.params.id;
-	if (typeof requestId !== 'string') {
-		return true;
-	}
-
-	inFlight.get(requestId)?.abort();
 	return true;
-}
-
-function isUnknownRecord(value: unknown): value is UnknownRecord {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 interfaceReader.on('line', (line) => {
@@ -88,10 +82,10 @@ function handleLineEffect(line: string): Effect.Effect<void> {
 	);
 }
 
-function parseJsonLineEffect(line: string): Effect.Effect<unknown, JsonParseError> {
+function parseJsonLineEffect(line: string): Effect.Effect<JsonValue, JsonParseError> {
 	return Effect.try({
 		try: () => {
-			const parsed: unknown = JSON.parse(line);
+			const parsed: JsonValue = JSON.parse(line);
 			return parsed;
 		},
 		catch: (cause) => new JsonParseError({
@@ -101,7 +95,7 @@ function parseJsonLineEffect(line: string): Effect.Effect<unknown, JsonParseErro
 	});
 }
 
-function parseRequestEffect(raw: unknown): Effect.Effect<BackendRequest, BadRequestError> {
+function parseRequestEffect(raw: JsonValue): Effect.Effect<BackendRequest, BadRequestError> {
 	return Effect.try({
 		try: () => parseBackendRequest(raw),
 		catch: (cause) => new BadRequestError({
@@ -117,13 +111,13 @@ function writeResponseEffect(response: BackendResponse): Effect.Effect<void> {
 	});
 }
 
-function badRequestResponse(id: string, error: unknown): BackendResponse {
+function badRequestResponse(id: string, cause: unknown): BackendResponse {
 	return {
 		id,
 		ok: false,
 		error: {
 			code: 'bad_request',
-			message: errorMessage(error),
+			message: errorMessage(cause),
 		},
 	};
 }

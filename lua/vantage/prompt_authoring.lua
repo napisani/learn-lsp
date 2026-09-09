@@ -1,4 +1,4 @@
-local prompt_buffer = require("vantage.prompt_buffer")
+local prompt_buffer = require("vantage.ui.prompt_buffer")
 
 local M = {}
 
@@ -18,14 +18,26 @@ function M.resolve(opts)
 	opts = opts or {}
 	local text = M.command_text(opts.command_opts)
 	if text then
-		opts.on_submit(text)
+		-- Inline args bypass the prompt buffer entirely, so this is the only place
+		-- that path can be recorded. Excluding it would make history mysteriously
+		-- miss the prompts typed fastest.
+		pcall(require("vantage.history").record, {
+			kind = opts.kind,
+			text = text,
+			submitted = true,
+			workspaceRoot = (opts.params or {}).workspaceRoot,
+			filePath = (opts.params or {}).filePath,
+		})
+		opts.on_submit(text, opts.runtime)
 		return true
 	end
 
 	prompt_buffer.open({
 		kind = opts.kind or "prompt",
 		params = opts.params or {},
-		on_submit = function(input)
+		runtime = opts.runtime,
+		show_runtime_toggle = opts.show_runtime_toggle,
+		on_submit = function(input, runtime)
 			local submitted = M.command_text({ args = input })
 			if not submitted then
 				if opts.empty_message then
@@ -33,7 +45,7 @@ function M.resolve(opts)
 				end
 				return
 			end
-			opts.on_submit(submitted)
+			opts.on_submit(submitted, runtime)
 		end,
 	})
 	return false

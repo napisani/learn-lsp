@@ -53,8 +53,8 @@ The provider name inside a Model Target, corresponding to the first argument of 
 _Avoid_: Vantage provider, plugin provider, backend provider
 
 **Agent Options**:
-The user-configurable subset of Pi simple completion options shared by Model-Backed Commands, such as API key, temperature, token budget, reasoning level, retry limits, metadata, headers, and request timeout.
-_Avoid_: Provider settings, backend options, arbitrary SDK passthrough
+A freeform bag of Pi options supplied for the Agent Runtime. Vantage preserves the bag and does not inject model-option defaults; the Agent Runtime and Pi decide which options apply.
+_Avoid_: Provider settings, Vantage-owned model defaults, shared completion options
 
 **Agent Option Naming**:
 The rule that Agent Options and Command Agent Options use Pi SDK camelCase field names, while Vantage-owned configuration keeps Lua-style snake_case names.
@@ -72,8 +72,12 @@ _Avoid_: General provider config, secret storage, login flow config
 The public Vantage setup surface for the Agent Runtime: a compact `agent` table containing the Model Target and Agent Options.
 _Avoid_: Provider configuration, runtime configuration, Pi configuration
 
+**Completion Options**:
+A freeform bag of Pi options supplied for one-shot Completion Runtime calls. It is independent of Agent Options and is passed to Pi without Vantage model-option defaults.
+_Avoid_: Shared agent options, provider-specific adapter settings, Vantage-owned sampling defaults
+
 **Agent Configuration Module**:
-The Lua module that normalizes Vantage setup state into the backend request config sent over the Neovim Backend Transport, including Agent Options, Agent Auth Configuration, Session Output History retention, Command Configuration, and Annotation Command Configuration.
+The Lua module that normalizes Vantage setup state into the backend request config sent over the Neovim Backend Transport, including Agent Options, Completion Options, Agent Auth Configuration, Session Output History retention, Command Configuration, and Annotation Command Configuration.
 _Avoid_: Scattered config serialization, protocol parser, runtime option merger
 
 **Session Output Configuration**:
@@ -93,7 +97,7 @@ The top-level Vantage setup surface for command behavior, keyed by command famil
 _Avoid_: Agent configuration for command behavior, scattered command globals
 
 **Command Agent Options**:
-A command-specific override layer for Agent Options under Command Configuration, used when a Vantage command needs a different token budget or timeout than the shared defaults.
+A command-specific option bag layered onto Agent Options for an Agent Runtime command. Vantage does not supply fallback model-option values.
 _Avoid_: Separate provider config, command provider
 
 **Annotation Command Configuration**:
@@ -376,7 +380,7 @@ Domain expert: "No. Runtime Simplification means removing those adapters and the
 
 Dev: "Where do timeouts, reasoning level, and token budgets belong?"
 
-Domain expert: "Use Agent Options for shared Pi simple completion options, and Command Agent Options inside Command Configuration when a specific command needs overrides like a smaller annotation token budget."
+Domain expert: "Put them in the freeform option bag for the runtime that should receive them. Agent Options and Completion Options are independent; command-specific options can further layer onto Agent Options."
 
 Dev: "Should Pi option names be converted to Lua-style snake_case?"
 
@@ -388,7 +392,7 @@ Domain expert: "Use Agent Credential Resolution. Vantage passes `agent.options.a
 
 Dev: "What should users configure in Lua?"
 
-Domain expert: "Use Agent Configuration: `agent.provider`, `agent.model`, optional `agent.auth`, and optional Agent Options. Do not expose the old provider adapter shape."
+Domain expert: "Use Agent Configuration for `agent.provider`, `agent.model`, optional `agent.auth`, Agent Options, and Completion Options. Do not expose the old provider adapter shape."
 
 Dev: "Where should annotation wait timing live?"
 

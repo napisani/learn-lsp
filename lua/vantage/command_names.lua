@@ -11,8 +11,19 @@ local CommandNames = {
 	status = "VantageStatus",
 	session_output = "VantageSessionOutput",
 	search = "VantageSearch",
-	agent_cancel = "VantageAgentCancel",
+	cancel = "VantageCancel",
 	agent_reset = "VantageAgentReset",
+	debug_log = "VantageDebugLog",
+	model = "VantageModel",
+	output_to_buffer = "VantageOutputToBuffer",
+	compose = "VantageCompose",
+	compose_send = "VantageComposeSend",
+	compose_clear = "VantageComposeClear",
+	history = "VantageHistory",
+	history_clear_workspace = "VantageHistoryClearWorkspace",
+	history_clear_all = "VantageHistoryClearAll",
+	monitor = "VantageMonitor",
+	health = "VantageHealth",
 }
 
 CommandNames.all = {
@@ -28,8 +39,19 @@ CommandNames.all = {
 	CommandNames.status,
 	CommandNames.session_output,
 	CommandNames.search,
-	CommandNames.agent_cancel,
+	CommandNames.cancel,
 	CommandNames.agent_reset,
+	CommandNames.debug_log,
+	CommandNames.model,
+	CommandNames.output_to_buffer,
+	CommandNames.compose,
+	CommandNames.compose_send,
+	CommandNames.compose_clear,
+	CommandNames.history,
+	CommandNames.history_clear_workspace,
+	CommandNames.history_clear_all,
+	CommandNames.monitor,
+	CommandNames.health,
 }
 
 return CommandNames

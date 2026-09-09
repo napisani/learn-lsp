@@ -62,7 +62,7 @@ function M.response(method, params)
 	if method == "editSelection" then
 		return {
 			kind = "edit",
-			replacementText = params.selectedText or params.text or "",
+			replacementText = params.scopeText or params.selectedText or params.text or "",
 		}
 	end
 
@@ -173,6 +173,14 @@ function M.response(method, params)
 					source = "development",
 				},
 			},
+		}
+	end
+
+	if method == "complete" then
+		local prompt = params.prompt or ""
+		return {
+			kind = "completion",
+			text = "Development completion response for: " .. prompt,
 		}
 	end
 

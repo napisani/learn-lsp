@@ -33,6 +33,6 @@ export class EmptyModelResponseError extends Data.TaggedError('EmptyModelRespons
 
 export class UnexpectedModelResponseError extends Data.TaggedError('UnexpectedModelResponseError')<ErrorMessageFields> {}
 
-export function errorMessage(error: unknown): string {
-	return error instanceof Error ? error.message : String(error);
+export function errorMessage(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause);
 }

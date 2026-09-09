@@ -2,6 +2,33 @@ local backend_config = require("vantage.backend_config")
 local development_backend = require("vantage.development_backend")
 local state = require("vantage.state")
 
+local function log_path()
+	local debug = state.config and state.config.debug
+	return debug and debug.log_path
+end
+
+local function write_ndjson(entry)
+	local path = log_path()
+	if not path then
+		return
+	end
+	local ok, json = pcall(vim.json.encode, entry)
+	if not ok then
+		return
+	end
+	local fd, open_err = vim.loop.fs_open(path, "a", 420)
+	if not fd then
+		return
+	end
+	vim.loop.fs_write(fd, json .. "\n", 0)
+	vim.loop.fs_close(fd)
+end
+
+local function log_event(entry)
+	entry.ts = os.date("!%Y-%m-%dT%H:%M:%S") .. string.format(".%03dZ", vim.loop.hrtime() % 1000000000 / 1000000)
+	write_ndjson(entry)
+end
+
 local M = {}
 
 local job_id = nil
@@ -152,11 +179,14 @@ end
 
 function M.request(method, params, callback, options)
 	if state.config.backend.mode == "development" then
-		invoke_callback(callback, {
+		log_event({ dir = "request", id = "development", method = method })
+		local response = {
 			id = "development",
 			ok = true,
 			result = development_backend.response(method, params),
-		})
+		}
+		log_event({ dir = "response", id = "development", ok = true, kind = response.result and response.result.kind })
+		invoke_callback(callback, response)
 		return "development"
 	end
 
@@ -172,10 +202,29 @@ function M.request(method, params, callback, options)
 
 	local id = tostring(next_id)
 	next_id = next_id + 1
+	local wrapped_callback = callback
+	if log_path() then
+		local request_method = method
+		local original_callback = callback
+		wrapped_callback = function(response)
+			log_event({
+				dir = "response",
+				id = id,
+				ok = response and response.ok,
+				kind = response and response.result and response.result.kind,
+				error_code = response and response.error and (response.error.code or tostring(response.error)),
+			})
+			if original_callback then
+				original_callback(response)
+			end
+		end
+	end
 	pending[id] = {
-		callback = callback,
+		callback = wrapped_callback,
 		on_progress = options and options.on_progress or nil,
 	}
+
+	log_event({ dir = "request", id = id, method = method })
 
 	local message = vim.json.encode({
 		id = id,

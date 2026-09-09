@@ -1,5 +1,6 @@
 local backend = require("vantage.backend")
 local context = require("vantage.context")
+local response_util = require("vantage.response")
 
 local M = {}
 
@@ -28,11 +29,8 @@ function M.list(callback)
 	end
 	loading = true
 	backend.request("listSkills", context.current_line(), function(response)
-		if not response or not response.ok or not response.result or response.result.kind ~= "skills" then
-			complete({})
-			return
-		end
-		complete(response.result.skills or {})
+		local result = response_util.unwrap(response, "skills")
+		complete(result and result.skills or {})
 	end)
 end
 
