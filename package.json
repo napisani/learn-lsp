@@ -1,0 +1,47 @@
+{
+  "name": "vantage.nvim",
+  "description": "A Neovim-first AI review and learning assistant with a local TypeScript backend.",
+  "author": "Nick Pisani",
+  "license": "MIT",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/napisani/vantage-nvim"
+  },
+  "private": true,
+  "pi": {
+    "extensions": ["./server/src/neovim/runtime/adjacent/extension.ts"]
+  },
+  "packageManager": "npm@11.19.1",
+  "keywords": [
+    "neovim",
+    "ai",
+    "code-review",
+    "learning"
+  ],
+  "scripts": {
+    "build:plugin": "npm run compile && node scripts/build-plugin-package.mjs",
+    "compile": "tsc -b server",
+    "clean:server": "node -e \"require('node:fs').rmSync('server/out', { recursive: true, force: true })\"",
+    "watch": "tsc -b server -w",
+    "lint": "oxlint .",
+    "test": "npm run test:mvp",
+    "dev": "nodemon --watch server/src --exec \"npm run compile\"",
+    "test:backend": "npm run clean:server && npm run compile && node --test 'server/out/neovim/**/*.test.js'",
+    "test:nvim": "mkdir -p .nvim-dev/state/nvim && XDG_STATE_HOME=.nvim-dev/state NVIM_LOG_FILE=.nvim-dev/state/nvim/test.log nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('vantage_spec').run()\" -c qa",
+    "test:mvp": "npm run test:backend && npm run test:nvim"
+  },
+  "devDependencies": {
+    "@oxlint/plugins": "1.78.0",
+    "nodemon": "^3.1.14",
+    "oxlint": "^1.81.0"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "^0.85.1",
+    "@earendil-works/pi-coding-agent": "^0.85.1",
+    "@types/node": "^22.20.1",
+    "effect": "^3.22.1",
+    "typescript": "^5.9.3",
+    "zod": "^4.5.4"
+  }
+}
